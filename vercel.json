@@ -1,0 +1,11 @@
+{
+  "rewrites": [
+    { "source": "/", "destination": "/api/pagina" }
+  ],
+  "functions": {
+    "api/pagina.js": { "includeFiles": "conteudo/**" }
+  },
+  "headers": [
+    { "source": "/(.*)", "headers": [ { "key": "X-Robots-Tag", "value": "noindex, nofollow" } ] }
+  ]
+}
