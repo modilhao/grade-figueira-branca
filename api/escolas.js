@@ -2,7 +2,39 @@
 // Cada gravação vira um arquivo novo e imutável em Vercel Blob: escolas/<id>/<momento>.json.
 // A leitura lista os arquivos e pega o mais recente de cada escola. Arquivo imutável
 // não sofre com cache de CDN, e nenhuma gravação apaga a anterior (histórico de graça).
-const { put, list } = require('@vercel/blob');
+const { put, list, get } = require('@vercel/blob');
+
+// A loja pode ser pública ou privada (o padrão novo da Vercel é privada).
+// Tenta a última que funcionou e cai para a outra.
+let acesso = process.env.BLOB_ACCESS === 'public' ? 'public' : 'private';
+const outro = (a) => (a === 'private' ? 'public' : 'private');
+
+async function texto(stream) {
+  const r = new Response(stream);
+  return r.text();
+}
+
+async function lerBlob(url) {
+  for (const a of [acesso, outro(acesso)]) {
+    try {
+      const r = await get(url, { access: a, useCache: false });
+      if (r && r.stream) { acesso = a; return JSON.parse(await texto(r.stream)); }
+    } catch (e) { /* tenta o outro modo */ }
+  }
+  return null;
+}
+
+async function gravar(caminho, corpo) {
+  let ultimoErro;
+  for (const a of [acesso, outro(acesso)]) {
+    try {
+      await put(caminho, corpo, { access: a, contentType: 'application/json', addRandomSuffix: true });
+      acesso = a;
+      return;
+    } catch (e) { ultimoErro = e; }
+  }
+  throw ultimoErro;
+}
 const { liberado } = require('./_acesso');
 
 const ID = /^[a-z0-9-]{1,40}$/;
@@ -43,8 +75,8 @@ async function ler() {
   } while (cursor);
   const escolas = {};
   await Promise.all(Object.keys(recentes).map(async (id) => {
-    const r = await fetch(recentes[id].url, { cache: 'no-store' });
-    if (r.ok) escolas[id] = limpa(await r.json());
+    const doc = await lerBlob(recentes[id].url);
+    if (doc) escolas[id] = limpa(doc);
   }));
   return escolas;
 }
@@ -69,11 +101,7 @@ module.exports = async (req, res) => {
       if (!ID.test(String(id || ''))) return json(res, 400, { erro: 'escola inválida' });
       const doc = limpa(body.doc);
       const momento = new Date().toISOString().replace(/[:.]/g, '-');
-      await put(`escolas/${id}/${momento}.json`, JSON.stringify(doc), {
-        access: 'public',
-        contentType: 'application/json',
-        addRandomSuffix: true,
-      });
+      await gravar(`escolas/${id}/${momento}.json`, JSON.stringify(doc));
       const escolas = await ler();
       escolas[id] = doc; // garante que quem gravou vê a própria gravação mesmo se a listagem atrasar
       return json(res, 200, { escolas, podeEditar: true });
@@ -81,6 +109,6 @@ module.exports = async (req, res) => {
     res.setHeader('Allow', 'GET, POST');
     return json(res, 405, { erro: 'método não permitido' });
   } catch (e) {
-    return json(res, 500, { erro: 'falha no armazenamento' });
+    return json(res, 500, { erro: 'falha no armazenamento', detalhe: String((e && e.message) || e).slice(0, 300) });
   }
 };
