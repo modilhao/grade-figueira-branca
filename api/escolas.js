@@ -38,6 +38,8 @@ async function gravar(caminho, corpo) {
 const { liberado } = require('./_acesso');
 
 const ID = /^[a-z0-9-]{1,40}$/;
+// Escolas do piloto. Para incluir outra, acrescente o id aqui e na lista PADRAO da página.
+const ESCOLAS = new Set(['jardim-laura', 'figueira-branca', 'alfa-logos']);
 
 function inteiro(v) {
   if (v === null || v === undefined || v === '') return null;
@@ -65,7 +67,7 @@ async function ler() {
     const r = await list({ prefix: 'escolas/', limit: 1000, cursor });
     for (const b of r.blobs) {
       const id = b.pathname.split('/')[1];
-      if (!ID.test(id)) continue;
+      if (!ID.test(id) || !ESCOLAS.has(id)) continue;
       const t = new Date(b.uploadedAt).getTime();
       if (!recentes[id] || t > recentes[id].t || (t === recentes[id].t && b.pathname > recentes[id].p)) {
         recentes[id] = { t, p: b.pathname, url: b.url };
@@ -98,7 +100,7 @@ module.exports = async (req, res) => {
       let body = req.body;
       if (typeof body === 'string') body = JSON.parse(body || '{}');
       const id = body && body.id;
-      if (!ID.test(String(id || ''))) return json(res, 400, { erro: 'escola inválida' });
+      if (!ID.test(String(id || '')) || !ESCOLAS.has(id)) return json(res, 400, { erro: 'escola inválida' });
       const doc = limpa(body.doc);
       const momento = new Date().toISOString().replace(/[:.]/g, '-');
       await gravar(`escolas/${id}/${momento}.json`, JSON.stringify(doc));
